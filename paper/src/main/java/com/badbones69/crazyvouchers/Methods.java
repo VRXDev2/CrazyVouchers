@@ -6,7 +6,6 @@ import com.badbones69.crazyvouchers.config.ConfigManager;
 import com.badbones69.crazyvouchers.config.types.ConfigKeys;
 import com.badbones69.crazyvouchers.utils.ScheduleUtils;
 import com.ryderbelserion.fusion.core.api.enums.Level;
-import com.ryderbelserion.fusion.core.utils.StringUtils;
 import com.ryderbelserion.fusion.paper.FusionPaper;
 import com.ryderbelserion.fusion.paper.builders.folia.FoliaScheduler;
 import org.bukkit.*;
@@ -22,20 +21,14 @@ import org.bukkit.persistence.PersistentDataType;
 import org.jetbrains.annotations.NotNull;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Methods {
 
     private static @NotNull final CrazyVouchers plugin = CrazyVouchers.get();
 
     private static @NotNull final FusionPaper fusion = plugin.getFusion();
-
-    public static void removeItem(@NotNull final ItemStack item, @NotNull final Player player) {
-        if (item.getAmount() <= 1) {
-            player.getInventory().setItemInMainHand(null); // it's always the main hand, we don't allow off-hand usage
-        } else if (item.getAmount() > 1) {
-            item.setAmount(item.getAmount() - 1);
-        }
-    }
 
     public static void janitor() {
         final FileConfiguration configuration = FileKeys.users.getConfiguration();
@@ -121,7 +114,7 @@ public class Methods {
         final CommandSender sender = server.getConsoleSender();
 
         if (isCommand) {
-            ScheduleUtils.dispatch(consumer -> {
+            ScheduleUtils.dispatch(_ -> {
                 for (final String value : values) {
                     if (value.isEmpty()) continue;
 
@@ -138,31 +131,34 @@ public class Methods {
     }
 
     public static String getRandomNumber(@NotNull final String value) {
-        String safeLine = value;
+        final Pattern pattern = Pattern.compile("\\{random}:(\\d+)-(\\d+)");
+        final Matcher matcher = pattern.matcher(value);
 
-        if (safeLine.contains("{random}")) {
-            final String number = safeLine.split(":")[1];
+        final StringBuilder result = new StringBuilder();
 
-            if (number.contains("-")) {
-                final String[] splitter = number.split("-");
+        while (matcher.find()) {
+            try {
+                final int minimum = Integer.parseInt(matcher.group(1));
+                final int maximum = Integer.parseInt(matcher.group(2));
 
-                final Optional<Number> minRange = StringUtils.tryParseInt(splitter[0]);
-                final Optional<Number> maxRange = StringUtils.tryParseInt(splitter[1]);
-
-                if (minRange.isPresent() && maxRange.isPresent()) {
-                    final int minimum = minRange.get().intValue();
-                    final int maximum = maxRange.get().intValue();
-
-                    final int amount = Methods.getRandom().nextInt(minimum, maximum);
-
-                    safeLine = safeLine.replace("{random}:%s-%s".formatted(minimum, maximum), String.valueOf(amount));
-                } else {
-                    fusion.log(Level.WARNING, "The values supplied with {random} seem to not be integers. %s", value);
+                if (minimum > maximum) {
+                    fusion.log(Level.WARNING, "Invalid range in {random}: min > max in '%s'", matcher.group());
+                    matcher.appendReplacement(result, matcher.group());
+                    continue;
                 }
+
+                final int amount = Methods.getRandom().nextInt(minimum, maximum + 1); // the max is exclusive btw, so +1 is needed
+
+                matcher.appendReplacement(result, String.valueOf(amount));
+            } catch (NumberFormatException ex) {
+                fusion.log(Level.WARNING, "Invalid number format in {random}: %s", matcher.group());
+                matcher.appendReplacement(result, matcher.group());
             }
         }
 
-        return safeLine;
+        matcher.appendTail(result);
+
+        return result.toString();
     }
 
     public static boolean isInventoryFull(@NotNull final PlayerInventory inventory) {
